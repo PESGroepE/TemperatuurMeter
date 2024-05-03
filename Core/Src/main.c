@@ -28,7 +28,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-void speelNoot(double noot, int tijd);
+void speelToon(double toon, int tijd);
 void speelBrandAlarm();
 void leesTemp(float* temp, float* humid);
 /* USER CODE END PTD */
@@ -36,7 +36,7 @@ void leesTemp(float* temp, float* humid);
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define KLOK_FREQ 80000000
-#define PRESCALER 1
+#define PRESCALER 2
 #define toon1 1000
 #define toon2 600
 #define TijdsDuur100 100
@@ -49,6 +49,8 @@ void leesTemp(float* temp, float* humid);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+CAN_HandleTypeDef hcan1;
+
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim1;
@@ -56,7 +58,6 @@ TIM_HandleTypeDef htim1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
 
 /* USER CODE END PV */
 
@@ -66,6 +67,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_CAN1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -108,7 +110,27 @@ int main(void)
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   MX_TIM1_Init();
+  MX_CAN1_Init();
   /* USER CODE BEGIN 2 */
+
+  //canbus
+  uint32_t mb;
+  CAN_TxHeaderTypeDef msg;
+
+  //uint8_t data[4];
+  uint8_t data[] = {1};
+
+ // CAN_RxHeaderTypeDef msg2;
+  //uint8_t data2[8];
+
+  msg.StdId = 1;
+  msg.IDE = CAN_ID_STD;
+  msg.RTR = CAN_RTR_DATA;
+  msg.DLC = 8;
+  msg.TransmitGlobalTime = DISABLE;
+
+
+
   /* Config:
    * I2C1_SDA = PB7 (D4) PULL-UP, very high
    * I2C1_SCL = PB6 (D5) PULL-UP, very high
@@ -122,9 +144,12 @@ int main(void)
   char temperatuurTekst[50];
   char luchtvochtigheidTekst[50];
   char newLine[6] = "\n\r";
+  int brandAlarm = 0;
 
   uint8_t welkom[50] = "Temperatuur & luchtvochtigheid sensor:\n\r\n\r";
   HAL_UART_Transmit(&huart2, welkom, sizeof(welkom), HAL_MAX_DELAY);
+
+  HAL_CAN_Start(&hcan1);
 
   HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_1);
   __HAL_TIM_SET_AUTORELOAD(&htim1, 0);
@@ -141,10 +166,12 @@ int main(void)
 	    sprintf(temperatuurTekst, "Temperatuur: %.2f°C\n\r", temperature);
 	    sprintf(luchtvochtigheidTekst, "Luchtvochtigheid: %.2f%%\n\r", humidity);
 
-	    if(temperature > 23){
+	    if(temperature > 24){ //logica op de pi
 	    	//als temp te hoog is, stuur message naar pi dat brandalarm aan moet
-
+	    	brandAlarm = 1;
 	    	//bij message pi ontvangen brandalarm moet aan dan speelBrandAlarm
+	    }
+	    if(brandAlarm == 1){
 	    	speelBrandAlarm();
 	    }
 
@@ -153,7 +180,23 @@ int main(void)
 	    HAL_UART_Transmit(&huart2, (uint8_t*)luchtvochtigheidTekst, strlen(luchtvochtigheidTekst), 100);
 	    HAL_UART_Transmit(&huart2, (uint8_t*)newLine, strlen(newLine), HAL_MAX_DELAY);
 
-	   // HAL_Delay(1000);
+	    //kan dit? float -> uint8_t
+	    memcpy(data, &temperature, sizeof(float)); //4 bytes
+
+		  if (HAL_CAN_AddTxMessage(&hcan1, &msg, data, &mb) != HAL_OK) {
+			  Error_Handler();
+		  }
+	       HAL_Delay(1000);
+	       //HAL_UART_Transmit(&huart2, (uint8_t*)tekst, sizeof(tekst), 100);
+	       //HAL_UART_Transmit(&huart2, data, sizeof(1), 100);
+/*
+	  	if (HAL_CAN_GetRxFifoFillLevel(&hcan1, CAN_RX_FIFO0)){			//ontvang data van de pi
+	  		HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &msg2, data2);
+	  		if (data2[0] == 1) {										//als data 1 is, doe brandalarm aan
+	  			brandAlarm = 1;
+	  		}
+	  	}
+*/
 
 
     /* USER CODE END WHILE */
@@ -221,6 +264,87 @@ void SystemClock_Config(void)
   /** Enable MSI Auto calibration
   */
   HAL_RCCEx_EnableMSIPLLMode();
+}
+
+/**
+  * @brief CAN1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CAN1_Init(void)
+{
+
+  /* USER CODE BEGIN CAN1_Init 0 */
+
+  /* USER CODE END CAN1_Init 0 */
+
+  /* USER CODE BEGIN CAN1_Init 1 */
+	  hcan1.Instance = CAN1;
+	  hcan1.Init.Prescaler = 4;
+	  hcan1.Init.Mode = CAN_MODE_NORMAL;
+	  hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+	  hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
+	  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
+	  hcan1.Init.TimeTriggeredMode = DISABLE;
+	  hcan1.Init.AutoBusOff = DISABLE;
+	  hcan1.Init.AutoWakeUp = DISABLE;
+	  hcan1.Init.AutoRetransmission = DISABLE;
+	  hcan1.Init.ReceiveFifoLocked = DISABLE;
+	  hcan1.Init.TransmitFifoPriority = DISABLE;
+
+	  if (HAL_CAN_Init(&hcan1) != HAL_OK)
+	  {
+	    Error_Handler();
+	  }
+
+  /* USER CODE END CAN1_Init 1 */
+	  hcan1.Instance = CAN1;
+	  hcan1.Init.Prescaler = 4;
+	  hcan1.Init.Mode = CAN_MODE_NORMAL;
+	  hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+	  hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
+	  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
+	  hcan1.Init.TimeTriggeredMode = DISABLE;
+	  hcan1.Init.AutoBusOff = DISABLE;
+	  hcan1.Init.AutoWakeUp = ENABLE;
+	  hcan1.Init.AutoRetransmission = DISABLE;
+	  hcan1.Init.ReceiveFifoLocked = DISABLE;
+	  hcan1.Init.TransmitFifoPriority = DISABLE;
+	  if (HAL_CAN_Init(&hcan1) != HAL_OK)
+	  {
+	    Error_Handler();
+	  }
+  /* USER CODE BEGIN CAN1_Init 2 */
+	  CAN_FilterTypeDef sFilterConfig;
+
+	  sFilterConfig.FilterBank = 0;
+	  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+	  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+	  sFilterConfig.FilterIdHigh = 0x0000;
+	  sFilterConfig.FilterIdLow = 0x0000;
+	  sFilterConfig.FilterMaskIdHigh = 0x0000;
+	  sFilterConfig.FilterMaskIdLow = 0x0000;
+	  sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
+	  sFilterConfig.FilterActivation = ENABLE;
+	  sFilterConfig.SlaveStartFilterBank = 12;
+
+
+	     if (HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK) {
+	       Error_Handler();
+	     }
+
+
+	     if (HAL_CAN_Start(&hcan1) != HAL_OK) {
+	       Error_Handler();
+	     }
+
+	     if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_TX_MAILBOX_EMPTY) != HAL_OK)
+	     {
+	     /* Notification Error */
+	     Error_Handler();
+	     }
+  /* USER CODE END CAN1_Init 2 */
+
 }
 
 /**
@@ -292,7 +416,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 1;
+  htim1.Init.Prescaler = 3 - 1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim1.Init.Period = 65535;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -417,6 +541,12 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_CAN_TxMailbox0CompleteCallback(CAN_HandleTypeDef *hcan)
+{
+HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+}
+
 void leesTemp(float* temp, float* humid){
     uint8_t data[6] = {};
     int16_t tempRaw = 0;
@@ -447,9 +577,9 @@ void leesTemp(float* temp, float* humid){
     *humid = 100 * ((float)humidityRaw / 65535);
 }
 
-void speelNoot(double noot, int tijd) {
+void speelToon(double toon, int tijd) {
 
-	int ARR = KLOK_FREQ / (((2 * (PRESCALER + 1) * noot)) - 1);		//prescaler 1
+	int ARR = KLOK_FREQ / (((2 * (PRESCALER + 1) * toon)) - 1);
 	__HAL_TIM_SET_AUTORELOAD(&htim1, ARR);
 	HAL_Delay(tijd);
 	__HAL_TIM_SET_AUTORELOAD(&htim1, 0);			//naar 0 zetten voor rust tussen de noten in
@@ -457,12 +587,6 @@ void speelNoot(double noot, int tijd) {
 
 /* 293.66 = note_d
 ARR = klokfreq / (((2 * (prescaler + 1) * gewenstefreq)) - 1)
-120.336 = 72.000.000 / ((2 * (0 + 1) * 299,66) - 1)  		 //boven de 65535 dus kan niet (prescaler 0)
-66.798 = 80.000.000 / ((2 * (1 + 1) * 299,66) - 1)		//boven 65535 dus kan niet (prescaler 1)
-44.519 = 80.000.000 / ((2 * (2 + 1) * 299,66) - 1)		//prescaler 2
-
-392 = Note_G
-34.028 = 80.000.000 / ((2 * (2 + 1) * 392) - 1)			//prescaler 2
 
 Voor een brandalarm wordt vaak een pulserend geluid gebruikt met een frequentie tussen 800 Hz en 1200 Hz.
 16.670 = 80.000.000 / ((2 * (2 + 1) * 800) - 1) //800hz
@@ -472,9 +596,9 @@ Voor een brandalarm wordt vaak een pulserend geluid gebruikt met een frequentie 
 */
 
 void speelBrandAlarm(){
-	speelNoot(toon1, TijdsDuur100);
+	speelToon(toon1, TijdsDuur100);
 	HAL_Delay(TijdsDuur100);
-	speelNoot(toon2, TijdsDuur100);
+	speelToon(toon2, TijdsDuur100);
 	HAL_Delay(TijdsDuur100);
 }
 /* USER CODE END 4 */
