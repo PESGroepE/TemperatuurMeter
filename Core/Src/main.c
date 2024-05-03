@@ -166,8 +166,7 @@ int main(void)
 	    sprintf(temperatuurTekst, "Temperatuur: %.2f°C\n\r", temperature);
 	    sprintf(luchtvochtigheidTekst, "Luchtvochtigheid: %.2f%%\n\r", humidity);
 
-	    if(temperature > 24){ //logica op de pi
-	    	//als temp te hoog is, stuur message naar pi dat brandalarm aan moet
+	    if(temperature > 24){ //logica komt op de pi
 	    	brandAlarm = 1;
 	    	//bij message pi ontvangen brandalarm moet aan dan speelBrandAlarm
 	    }
@@ -180,7 +179,7 @@ int main(void)
 	    HAL_UART_Transmit(&huart2, (uint8_t*)luchtvochtigheidTekst, strlen(luchtvochtigheidTekst), 100);
 	    HAL_UART_Transmit(&huart2, (uint8_t*)newLine, strlen(newLine), HAL_MAX_DELAY);
 
-	    //kan dit? float -> uint8_t
+
 	    memcpy(data, &temperature, sizeof(float)); //4 bytes
 
 		  if (HAL_CAN_AddTxMessage(&hcan1, &msg, data, &mb) != HAL_OK) {
@@ -189,14 +188,6 @@ int main(void)
 	       HAL_Delay(1000);
 	       //HAL_UART_Transmit(&huart2, (uint8_t*)tekst, sizeof(tekst), 100);
 	       //HAL_UART_Transmit(&huart2, data, sizeof(1), 100);
-/*
-	  	if (HAL_CAN_GetRxFifoFillLevel(&hcan1, CAN_RX_FIFO0)){			//ontvang data van de pi
-	  		HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &msg2, data2);
-	  		if (data2[0] == 1) {										//als data 1 is, doe brandalarm aan
-	  			brandAlarm = 1;
-	  		}
-	  	}
-*/
 
 
     /* USER CODE END WHILE */
@@ -287,7 +278,7 @@ static void MX_CAN1_Init(void)
 	  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
 	  hcan1.Init.TimeTriggeredMode = DISABLE;
 	  hcan1.Init.AutoBusOff = DISABLE;
-	  hcan1.Init.AutoWakeUp = DISABLE;
+	  hcan1.Init.AutoWakeUp = ENABLE;
 	  hcan1.Init.AutoRetransmission = DISABLE;
 	  hcan1.Init.ReceiveFifoLocked = DISABLE;
 	  hcan1.Init.TransmitFifoPriority = DISABLE;
@@ -298,22 +289,7 @@ static void MX_CAN1_Init(void)
 	  }
 
   /* USER CODE END CAN1_Init 1 */
-	  hcan1.Instance = CAN1;
-	  hcan1.Init.Prescaler = 4;
-	  hcan1.Init.Mode = CAN_MODE_NORMAL;
-	  hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-	  hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
-	  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
-	  hcan1.Init.TimeTriggeredMode = DISABLE;
-	  hcan1.Init.AutoBusOff = DISABLE;
-	  hcan1.Init.AutoWakeUp = ENABLE;
-	  hcan1.Init.AutoRetransmission = DISABLE;
-	  hcan1.Init.ReceiveFifoLocked = DISABLE;
-	  hcan1.Init.TransmitFifoPriority = DISABLE;
-	  if (HAL_CAN_Init(&hcan1) != HAL_OK)
-	  {
-	    Error_Handler();
-	  }
+
   /* USER CODE BEGIN CAN1_Init 2 */
 	  CAN_FilterTypeDef sFilterConfig;
 
@@ -542,11 +518,17 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+ * Interrupt functie om te testen dat er iets verzonden is met CANbus
+ */
 void HAL_CAN_TxMailbox0CompleteCallback(CAN_HandleTypeDef *hcan)
 {
 HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
 }
 
+/**
+ * Functie om temperatuur en luchtvochtigheid uit te lezen en om te zetten naar Celsius
+ */
 void leesTemp(float* temp, float* humid){
     uint8_t data[6] = {};
     int16_t tempRaw = 0;
@@ -576,7 +558,9 @@ void leesTemp(float* temp, float* humid){
     humidityRaw = (data[3] << 8) | data[4];
     *humid = 100 * ((float)humidityRaw / 65535);
 }
-
+/**
+ * Functie om een toon af te laten spelen op de buzzer
+ */
 void speelToon(double toon, int tijd) {
 
 	int ARR = KLOK_FREQ / (((2 * (PRESCALER + 1) * toon)) - 1);
@@ -585,7 +569,7 @@ void speelToon(double toon, int tijd) {
 	__HAL_TIM_SET_AUTORELOAD(&htim1, 0);			//naar 0 zetten voor rust tussen de noten in
 }
 
-/* 293.66 = note_d
+/*
 ARR = klokfreq / (((2 * (prescaler + 1) * gewenstefreq)) - 1)
 
 Voor een brandalarm wordt vaak een pulserend geluid gebruikt met een frequentie tussen 800 Hz en 1200 Hz.
@@ -595,6 +579,9 @@ Voor een brandalarm wordt vaak een pulserend geluid gebruikt met een frequentie 
 
 */
 
+/**
+ * Functie om het geluid van een brandalarm te laten spelen
+ */
 void speelBrandAlarm(){
 	speelToon(toon1, TijdsDuur100);
 	HAL_Delay(TijdsDuur100);
