@@ -31,6 +31,8 @@
 void speelToon(double toon, int tijd);
 void speelBrandAlarm();
 void leesTemp(float* temp, float* humid);
+void sendTemp(float temp);
+void sendHumid(float humid);
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -54,6 +56,7 @@ CAN_HandleTypeDef hcan1;
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
 
@@ -68,6 +71,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_CAN1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -75,6 +79,15 @@ static void MX_CAN1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+//canbus
+uint32_t mb;
+CAN_TxHeaderTypeDef msg;
+uint8_t data[] = {1};
+
+CAN_RxHeaderTypeDef msg2;
+uint8_t data2[8];
+
+int brandAlarm = 0;
 
 /* USER CODE END 0 */
 
@@ -111,23 +124,11 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM1_Init();
   MX_CAN1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
-  //canbus
-  uint32_t mb;
-  CAN_TxHeaderTypeDef msg;
 
-  //uint8_t data[4];
-  uint8_t data[] = {1};
 
- // CAN_RxHeaderTypeDef msg2;
-  //uint8_t data2[8];
-
-  msg.StdId = 1;
-  msg.IDE = CAN_ID_STD;
-  msg.RTR = CAN_RTR_DATA;
-  msg.DLC = 8;
-  msg.TransmitGlobalTime = DISABLE;
 
 
 
@@ -144,50 +145,59 @@ int main(void)
   char temperatuurTekst[50];
   char luchtvochtigheidTekst[50];
   char newLine[6] = "\n\r";
-  int brandAlarm = 0;
+
+  uint32_t lastTempTime = 0;
+  uint32_t lastHumidTime = 0;
+
 
   uint8_t welkom[50] = "Temperatuur & luchtvochtigheid sensor:\n\r\n\r";
   HAL_UART_Transmit(&huart2, welkom, sizeof(welkom), HAL_MAX_DELAY);
 
-  HAL_CAN_Start(&hcan1);
+ // HAL_CAN_Start(&hcan1);
 
   HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_1);
   __HAL_TIM_SET_AUTORELOAD(&htim1, 0);
 
+  HAL_TIM_Base_Start(&htim2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	    if(brandAlarm == 1){
+	    	speelBrandAlarm();
+	    }
+
 	    leesTemp(&temperature, &humidity);
 
 	    //zet alles tekst en data in één variabele
 	    sprintf(temperatuurTekst, "Temperatuur: %.2f°C\n\r", temperature);
 	    sprintf(luchtvochtigheidTekst, "Luchtvochtigheid: %.2f%%\n\r", humidity);
 
-	    if(temperature > 24){ //logica komt op de pi
-	    	brandAlarm = 1;
-	    	//bij message pi ontvangen brandalarm moet aan dan speelBrandAlarm
-	    }
-	    if(brandAlarm == 1){
-	    	speelBrandAlarm();
-	    }
-
 	    // print de temperatuur en luchtvochtigheid
 	    HAL_UART_Transmit(&huart2, (uint8_t*)temperatuurTekst, strlen(temperatuurTekst), 100);
 	    HAL_UART_Transmit(&huart2, (uint8_t*)luchtvochtigheidTekst, strlen(luchtvochtigheidTekst), 100);
 	    HAL_UART_Transmit(&huart2, (uint8_t*)newLine, strlen(newLine), HAL_MAX_DELAY);
 
+	    /* 1 keer per seconde
+	     * feq = klokf / (pre * arr)
+	     * 1 = 80.000.000 / (8000 * 10.000)
+	     */
+	    uint32_t currentTime = __HAL_TIM_GET_COUNTER(&htim2);
 
-	    memcpy(data, &temperature, sizeof(float)); //4 bytes
+        if ((currentTime - lastTempTime) >= 10000) { // elke seconde
+            sendTemp(temperature);
+            lastTempTime = currentTime;
+        }
 
-		  if (HAL_CAN_AddTxMessage(&hcan1, &msg, data, &mb) != HAL_OK) {
-			  Error_Handler();
-		  }
-	       HAL_Delay(1000);
-	       //HAL_UART_Transmit(&huart2, (uint8_t*)tekst, sizeof(tekst), 100);
-	       //HAL_UART_Transmit(&huart2, data, sizeof(1), 100);
+        if ((currentTime - lastHumidTime) >= 20000) { // elke twee seconden
+            sendHumid(humidity);
+            lastHumidTime = currentTime;
+        }
+
+
+
 
 
     /* USER CODE END WHILE */
@@ -289,7 +299,22 @@ static void MX_CAN1_Init(void)
 	  }
 
   /* USER CODE END CAN1_Init 1 */
-
+  hcan1.Instance = CAN1;
+  hcan1.Init.Prescaler = 4;
+  hcan1.Init.Mode = CAN_MODE_NORMAL;
+  hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
+  hcan1.Init.TimeSeg1 = CAN_BS1_15TQ;
+  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
+  hcan1.Init.TimeTriggeredMode = DISABLE;
+  hcan1.Init.AutoBusOff = DISABLE;
+  hcan1.Init.AutoWakeUp = ENABLE;
+  hcan1.Init.AutoRetransmission = DISABLE;
+  hcan1.Init.ReceiveFifoLocked = DISABLE;
+  hcan1.Init.TransmitFifoPriority = DISABLE;
+  if (HAL_CAN_Init(&hcan1) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN CAN1_Init 2 */
 	  CAN_FilterTypeDef sFilterConfig;
 
@@ -452,6 +477,51 @@ static void MX_TIM1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 8000;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -518,12 +588,66 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+void sendTemp(float temp){
+	uint32_t mb;
+    CAN_TxHeaderTypeDef msg;
+    uint8_t data[4] = {0};
+
+    memcpy(data, &temp, sizeof(float)); //4 bytes
+
+    // Configureer het CAN bericht
+    msg.StdId = 0x05;
+    msg.IDE = CAN_ID_STD;
+    msg.RTR = CAN_RTR_DATA;
+    msg.DLC = 4;
+    msg.TransmitGlobalTime = DISABLE;
+	if (HAL_CAN_AddTxMessage(&hcan1, &msg, data, &mb) != HAL_OK) {
+		Error_Handler();
+	}
+}
+
+void sendHumid(float humid){
+	uint32_t mb;
+    CAN_TxHeaderTypeDef msg;
+    uint8_t data[4] = {0};
+
+    memcpy(data, &humid, sizeof(float)); //4 bytes
+
+    // Configureer het CAN bericht
+    msg.StdId = 0x06;
+    msg.IDE = CAN_ID_STD;
+    msg.RTR = CAN_RTR_DATA;
+    msg.DLC = 4;
+    msg.TransmitGlobalTime = DISABLE;
+	if (HAL_CAN_AddTxMessage(&hcan1, &msg, data, &mb) != HAL_OK) {
+		Error_Handler();
+	}
+}
+
+/**
+ * Interrupt functie wanneer er een bericht via CAN binnenkomt
+ *
+ */
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
+	if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &msg2, data2) == HAL_OK){
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		if(msg2.StdId == 0x02){
+			if(data2[0] == 1){	//bij data '1' ontvangen moet het brandalarm aan
+				brandAlarm = 1;
+			}
+			else if(data2[0] == 0){ //bij data '0' ontvangen moet het brandalarm uit
+				brandAlarm = 0;
+			}
+		}
+	}
+}
+
 /**
  * Interrupt functie om te testen dat er iets verzonden is met CANbus
  */
 void HAL_CAN_TxMailbox0CompleteCallback(CAN_HandleTypeDef *hcan)
 {
-HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+//HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
 }
 
 /**
