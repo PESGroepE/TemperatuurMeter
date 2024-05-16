@@ -588,6 +588,9 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+ * Functie voor het zenden van de temperatuur via CAN.
+ */
 void sendTemp(float temp){
 	uint32_t mb;
     CAN_TxHeaderTypeDef msg;
@@ -605,7 +608,9 @@ void sendTemp(float temp){
 		Error_Handler();
 	}
 }
-
+/**
+ * Functie voor het zenden van de luchtvochtigheid via CAN.
+ */
 void sendHumid(float humid){
 	uint32_t mb;
     CAN_TxHeaderTypeDef msg;
@@ -626,11 +631,11 @@ void sendHumid(float humid){
 
 /**
  * Interrupt functie wanneer er een bericht via CAN binnenkomt
- *
+ * Een bericht met ID 2 is voor het aansturen van de buzzer.
  */
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
 	if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &msg2, data2) == HAL_OK){
-		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);	//test led
 		if(msg2.StdId == 0x02){
 			if(data2[0] == 1){	//bij data '1' ontvangen moet het brandalarm aan
 				brandAlarm = 1;
