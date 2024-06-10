@@ -37,7 +37,7 @@ void sendHumid(float humid);
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define KLOK_FREQ 80000000
+#define KLOK_FREQ 32000000
 #define PRESCALER 2
 #define toon1 1000
 #define toon2 600
@@ -599,7 +599,7 @@ void sendTemp(float temp){
     memcpy(data, &temp, sizeof(float)); //4 bytes
 
     // Configureer het CAN bericht
-    msg.StdId = 0x05;
+    msg.StdId = 5;
     msg.IDE = CAN_ID_STD;
     msg.RTR = CAN_RTR_DATA;
     msg.DLC = 4;
@@ -619,7 +619,7 @@ void sendHumid(float humid){
     memcpy(data, &humid, sizeof(float)); //4 bytes
 
     // Configureer het CAN bericht
-    msg.StdId = 0x06;
+    msg.StdId = 6;
     msg.IDE = CAN_ID_STD;
     msg.RTR = CAN_RTR_DATA;
     msg.DLC = 4;
@@ -636,7 +636,7 @@ void sendHumid(float humid){
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
 	if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &msg2, data2) == HAL_OK){
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);	//test led
-		if(msg2.StdId == 0x02){
+		if(msg2.StdId == 2){
 			if(data2[0] == 1){	//bij data '1' ontvangen moet het brandalarm aan
 				brandAlarm = 1;
 			}
@@ -702,10 +702,8 @@ void speelToon(double toon, int tijd) {
 ARR = klokfreq / (((2 * (prescaler + 1) * gewenstefreq)) - 1)
 
 Voor een brandalarm wordt vaak een pulserend geluid gebruikt met een frequentie tussen 800 Hz en 1200 Hz.
-16.670 = 80.000.000 / ((2 * (2 + 1) * 800) - 1) //800hz
-13.335 = 80.000.000 / ((2 * (2 + 1) * 1000) - 1) //1000hz
-11.112 = 80.000.000 / ((2 * (2 + 1) * 1200) - 1) //1200hz
-
+6.668 = 32.000.000 / ((2 * (2 + 1) * 800) - 1) //800hz
+4.445 =	32.000.000 / ((2 * (2 + 1) * 1200 - 1) //1200hz
 */
 
 /**
